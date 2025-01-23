@@ -47,31 +47,27 @@ def fetch_realtime_data(ticker, api_token):
     """
     Fetch real-time quote data from EODHD for the given ticker.
     Endpoint: https://eodhd.com/api/real-time/{Ticker}?api_token={api_token}&fmt=json
-    Expected to return a JSON with at least the fields: open, high, low, close, volume, etc.
+    Example response:
+        {
+            "code": "AAPL.US",
+            "timestamp": 1737581280,
+            "gmtoffset": 0,
+            "open": 219.79,
+            "high": 224.12,
+            "low": 219.79,
+            "close": 223.83,
+            "volume": 63397830,
+            "previousClose": 222.64,
+            "change": 1.19,
+            "change_p": 0.5345
+        }
     """
     url = f"https://eodhd.com/api/real-time/{ticker}"
-    params = {
-        "api_token": api_token,
-        "fmt": "json"
-    }
+    params = {"api_token": api_token, "fmt": "json"}
     try:
         resp = requests.get(url, params=params)
         resp.raise_for_status()
-        data = resp.json()
-        # data should be a dictionary like:
-        # {
-        #   "code": "AAPL",
-        #   "timestamp": 1677097200,
-        #   "gmtoffset": -18000,
-        #   "open": 154.65,
-        #   "close": 155.00,
-        #   "high": 156.1,
-        #   "low": 153.8,
-        #   "volume": 12345678,
-        #   "currency": "USD",
-        #   ...
-        # }
-        return data
+        return resp.json()  # returns a dict
     except Exception as e:
         logging.error(f"Error fetching real-time data for ticker '{ticker}': {e}")
         return None
@@ -133,7 +129,6 @@ def main():
         sys.exit(1)
 
     # 6) Prepare INSERT statement
-    # Matches your table schema:
     # ext2_ticker, open, high, low, close, volume, currency,
     # timestamp_created_utc, timestamp_read_utc
     insert_sql = f"""
@@ -161,14 +156,15 @@ def main():
 
         now_utc = datetime.now(timezone.utc)
 
-        # If there's a timestamp in the JSON, convert it; otherwise default to now.
-        # Often "timestamp" is an epoch in seconds. Adjust if needed.
-        # If the JSON doesn't contain 'timestamp', fall back to now_utc.
+        # Convert epoch timestamp if present; otherwise use now.
         epoch_ts = data.get("timestamp")
         if epoch_ts:
             read_time = datetime.utcfromtimestamp(epoch_ts)
         else:
             read_time = now_utc
+
+        # Force currency to None => will be NULL in DB
+        currency_value = None
 
         row_tuple = (
             ticker,
@@ -177,7 +173,7 @@ def main():
             data.get("low"),
             data.get("close"),
             data.get("volume"),
-            data.get("currency", ""),  # default to empty if not present
+            currency_value,       # Always None => DB will store NULL
             now_utc,
             read_time
         )
@@ -219,3 +215,4 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error(f"Script terminated with an error: {e}")
         sys.exit(1)
+
