@@ -1,8 +1,9 @@
-# EODHD (eodhd.com) Data Fetch & Ingestion into Azure SQL
+# EODHD (eodhd.com) Real Time Data Fetch & Ingestion into Azure SQL
 
 This repository contains a Python script (`script.py`) that automates:
 1. **Retrieving tickers** from an Azure SQL Database (using a customizable SQL query).
-2. **Fetching daily OHLC EOD** data from the [EODHD API](https://eodhd.com/).
+2. **Fetching daily OHLC EOD** data and/or **real-time quotes** from the [EODHD API](https://eodhd.com/).
+   - **Real-time Endpoint**: `https://eodhd.com/api/real-time/{ticker}?api_token={YOUR_API_TOKEN}&fmt=json`
 3. **Inserting** the fetched data into an Azure SQL table, optionally executing a **pre-SQL** command and a **post-SQL** command.
 
 All authentication to Azure SQL uses [Azure Active Directory (AAD)](https://docs.microsoft.com/azure/azure-sql/database/authentication-aad-overview). We rely on [`DefaultAzureCredential`](https://docs.microsoft.com/azure/developer/python/sdk/authentication-azure-hosted-apps) to seamlessly acquire tokens from multiple possible sources (e.g., environment variables, Managed Identities, Workload Identities, Azure CLI, etc.).
