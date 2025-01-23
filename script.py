@@ -197,7 +197,7 @@ def main():
     # 7) Parallel fetch + insert
     logging.info(f"Fetching & inserting real-time data for {len(tickers)} tickers...")
     total_inserted = 0
-    max_workers = 10  # adjust as needed
+    max_workers = 25  # adjust as needed
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_map = {executor.submit(fetch_and_insert_one, t): t for t in tickers}
