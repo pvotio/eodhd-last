@@ -81,7 +81,7 @@ def main():
     db_server    = os.getenv("DB_SERVER")
     db_name      = os.getenv("DB_NAME")
     api_token    = os.getenv("EODHD_API_TOKEN")
-    target_table = os.getenv("TARGET_TABLE", "etl.ext2_last_eod_v2")
+    target_table = os.getenv("TARGET_TABLE")
     ticker_sql   = os.getenv("TICKER_SQL")
 
     if not (db_server and db_name and api_token and ticker_sql):
