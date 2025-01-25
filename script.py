@@ -10,6 +10,7 @@ from azure.identity import DefaultAzureCredential
 from urllib.parse import quote_plus
 from sqlalchemy import create_engine
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time  # for sleep/backoff
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,10 +44,11 @@ def get_tickers(engine, ticker_sql):
         logging.error(f"Error fetching tickers: {e}")
         sys.exit(1)
 
-def fetch_realtime_data(ticker, api_token):
+def fetch_realtime_data(ticker, api_token, max_retries=3):
     """
-    Fetch real-time quote data from EODHD for the given ticker.
+    Fetch real-time quote data from EODHD for the given ticker with retry logic.
     Endpoint: https://eodhd.com/api/real-time/{Ticker}?api_token={api_token}&fmt=json
+
     Example response:
         {
             "code": "AAPL.US",
@@ -64,13 +66,45 @@ def fetch_realtime_data(ticker, api_token):
     """
     url = f"https://eodhd.com/api/real-time/{ticker}"
     params = {"api_token": api_token, "fmt": "json"}
-    try:
-        resp = requests.get(url, params=params)
-        resp.raise_for_status()
-        return resp.json()  # returns a dict
-    except Exception as e:
-        logging.error(f"Error fetching real-time data for ticker '{ticker}': {e}")
-        return None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.get(url, params=params)
+            resp.raise_for_status()  # Raises HTTPError if status != 200
+            return resp.json()       # returns a dict
+
+        except requests.exceptions.HTTPError as http_err:
+            status_code = http_err.response.status_code
+            if status_code == 429:
+                # Too Many Requests
+                if attempt < max_retries:
+                    logging.warning(
+                        f"Received 429 for ticker '{ticker}' "
+                        f"(Attempt {attempt}/{max_retries}). Sleeping 5s..."
+                    )
+                    time.sleep(5)
+                else:
+                    logging.error(
+                        f"Received 429 for ticker '{ticker}' on final attempt. Aborting."
+                    )
+                    return None
+            else:
+                logging.error(
+                    f"HTTP error for ticker '{ticker}' (Attempt {attempt}/{max_retries}): {http_err}"
+                )
+                # If you only want to retry on 429, break for other codes:
+                break
+
+        except Exception as e:
+            logging.error(
+                f"Error fetching real-time data for ticker '{ticker}' "
+                f"(Attempt {attempt}/{max_retries}): {e}"
+            )
+            # Decide if you want to keep retrying or break on other exceptions:
+            break
+
+    # If all retries exhausted or non-429 error encountered
+    return None
 
 def main():
     # 1) Load environment variables (make sure to set these in your environment)
@@ -95,7 +129,7 @@ def main():
         logging.error(f"Failed to obtain access token for SQL Database: {e}")
         sys.exit(1)
 
-    # 3) Build SQLAlchemy engine for reading Tickers
+    # 3) Build SQLAlchemy engine for reading tickers
     attrs = get_pyodbc_attrs(access_token)
     odbc_connection_str = (
         "DRIVER={ODBC Driver 18 for SQL Server};"
@@ -129,8 +163,6 @@ def main():
         sys.exit(1)
 
     # 6) Prepare INSERT statement
-    # ext2_ticker, open, high, low, close, volume, currency,
-    # timestamp_created_utc, timestamp_read_utc
     insert_sql = f"""
     INSERT INTO {target_table} (
         ext2_ticker,
@@ -150,7 +182,7 @@ def main():
         """
         Fetch real-time data for a single ticker and insert one row into the database.
         """
-        data = fetch_realtime_data(ticker, api_token)
+        data = fetch_realtime_data(ticker, api_token, max_retries=3)
         if not data:
             return 0  # no data or error
 
@@ -173,7 +205,7 @@ def main():
             data.get("low"),
             data.get("close"),
             data.get("volume"),
-            currency_value,       # Always None => DB will store NULL
+            currency_value,  # Always None => DB will store NULL
             now_utc,
             read_time
         )
@@ -182,7 +214,6 @@ def main():
         try:
             with pyodbc.connect(odbc_connection_str, attrs_before=attrs) as conn:
                 cursor = conn.cursor()
-                cursor.fast_executemany = True
                 cursor.execute(insert_sql, row_tuple)
                 conn.commit()
             return 1
@@ -215,4 +246,5 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error(f"Script terminated with an error: {e}")
         sys.exit(1)
+
 
